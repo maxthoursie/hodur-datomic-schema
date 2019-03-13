@@ -66,24 +66,26 @@
                m field)))
 
 (defn ^:private process-field
-  [entity-id is-enum? {:keys [field/name] :as field}]
-  (cond-> {:db/ident (keyword entity-id
+  [entity-id is-enum? {:keys [field/name] :as field} {:keys [prefix]}]
+  (cond-> {:db/ident (keyword (if prefix
+                                (str (clojure.core/name prefix) "." entity-id)
+                                entity-id)
                               (->kebab-case-string name))}
     (not is-enum?) (assoc :db/valueType (get-value-type field)
                           :db/cardinality (get-cardinality field))
     (not is-enum?) (assoc-attributes field)
-    
+
     :always        (assoc-documentation field)))
 
 
 (defn ^:private get-type
-  [{:keys [type/name type/enum field/_parent]}]
+  [{:keys [type/name type/enum field/_parent]} opts]
   (let [entity-id (->kebab-case-string name)]
     (->> _parent
          (sort-by :field/name)
          (reduce (fn [c {:keys [datomic/tag] :as field}]
                    (if tag
-                     (conj c (process-field entity-id enum field))
+                     (conj c (process-field entity-id enum field opts))
                      c))
                  []))))
 
@@ -92,7 +94,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn schema
-  [conn]
+  [conn & [opts]]
   (let [selector '[* {:field/_parent
                       [* {:field/type [*]}]}]
         eids (-> (q/q '[:find ?e
@@ -108,7 +110,7 @@
                    (sort-by :type/name))]
     (->> types
          (reduce (fn [c t]
-                   (concat c (get-type t)))
+                   (concat c (get-type t opts)))
                  [])
          vec)))
 
@@ -124,7 +126,7 @@
                  ^:interface
                  Person
                  [^String name]
-                 
+
                  Employee
                  [^String name
                   ^{:type String
@@ -151,11 +153,11 @@
                   bigdec-type
                   ^EmploymentType employment-type
                   ^SearchResult last-search-results]
-                 
+
                  ^{:union true}
                  SearchResult
                  [Employee Person EmploymentType]
-                 
+
                  ^{:enum true}
                  EmploymentType
                  [FULL_TIME
